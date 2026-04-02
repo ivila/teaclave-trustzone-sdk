@@ -40,3 +40,4 @@ optee-utee-build = { path = "../../../optee-utee-build" }
 [profile.release]
 lto = true
 opt-level = 1
+strip = true
