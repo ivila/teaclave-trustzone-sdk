@@ -18,6 +18,8 @@
 #![allow(non_camel_case_types, non_snake_case)]
 
 pub use tee_client_api::*;
+pub use plugin_method::*;
 pub type size_t = usize;
 
 mod tee_client_api;
+mod plugin_method;

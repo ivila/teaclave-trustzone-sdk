@@ -15,13 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#[no_mangle]
-pub static mut plugin_method: optee_teec::PluginMethod = optee_teec::PluginMethod {
-    name: plugin_name.as_ptr(),
-    uuid: PLUGIN_UUID_STRUCT,
-    init: _plugin_init,
-    invoke: _plugin_invoke,
-};
+use crate::{TEEC_Result, TEEC_UUID, size_t};
+use core::ffi::c_char;
 
-#[no_mangle]
-pub static plugin_name: &[u8] = b"syslog\0";
+#[repr(C)]
+pub struct PluginMethod {
+    pub name: *const c_char,
+    pub uuid: TEEC_UUID,
+    pub init: unsafe extern "C" fn() -> TEEC_Result,
+    pub invoke: unsafe extern "C" fn(
+        cmd: u32,
+        sub_cmd: u32,
+        data: *mut c_char,
+        in_len: size_t,
+        out_len: *mut size_t,
+    ) -> TEEC_Result,
+}

@@ -27,12 +27,7 @@ edition = "2018"
 [dependencies]
 libc = "0.2.48"
 proto = { path = "../proto" }
-optee-teec = { path = "../../../crates/optee-teec" }
-
-[build-dependencies]
-uuid = { version = "0.8" }
-proto = { path = "../proto" }
-anyhow = "1.0"
+optee-teec = { path = "../../../crates/optee-teec", features = ["macros"] }
 
 [profile.release]
 lto = true

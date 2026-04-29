@@ -15,24 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use optee_teec::{plugin_init, plugin_invoke, ErrorKind, PluginParameters};
+use optee_teec::{declare_supp_plugin, ErrorKind, PluginParameters};
 use proto::PluginCommand;
 
-#[plugin_init]
-fn init() -> optee_teec::Result<()> {
+fn plugin_init() -> optee_teec::Result<()> {
     println!("*plugin*: init, version: {}", env!("CARGO_PKG_VERSION"));
     Ok(())
 }
 
-#[plugin_invoke]
-fn invoke(params: &mut PluginParameters) -> optee_teec::Result<()> {
+fn plugin_invoke(params: &mut PluginParameters) -> optee_teec::Result<()> {
     println!("*plugin*: invoke");
     match PluginCommand::from(params.cmd) {
         PluginCommand::Print => {
+            let input = params.get_buffer();
             println!(
                 "*plugin*: receive value: {:?} length {:?}",
-                params.inout,
-                params.inout.len()
+                input,
+                input.len()
             );
 
             let send_slice: [u8; 9] = [0x40; 9];
@@ -51,4 +50,9 @@ fn invoke(params: &mut PluginParameters) -> optee_teec::Result<()> {
     }
 }
 
-include!(concat!(env!("OUT_DIR"), "/plugin_static.rs"));
+declare_supp_plugin!(
+    name: "syslog",
+    uuid: "ef620757-fa2b-4f19-a1c4-6e51cfe4c0f9",
+    init: plugin_init,
+    invoke: plugin_invoke,
+);
