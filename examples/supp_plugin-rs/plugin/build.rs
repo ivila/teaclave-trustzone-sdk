@@ -14,33 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+use optee_teec_plugin_bindgen::{uuid::Uuid, Config};
 
-use anyhow::{anyhow, Result};
-use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
-use uuid::Uuid;
-
-fn main() -> Result<()> {
-    let out = &PathBuf::from(env::var_os("OUT_DIR").ok_or_else(|| anyhow!("OUT_DIR not set"))?);
-    let mut buffer = File::create(out.join("plugin_static.rs"))?;
-    buffer.write_all(include_bytes!("plugin_static.rs"))?;
-
-    let plugin_uuid = Uuid::parse_str(proto::PLUGIN_UUID)?;
-    let (time_low, time_mid, time_hi_and_version, clock_seq_and_node) = plugin_uuid.as_fields();
-
-    writeln!(buffer)?;
-    write!(
-        buffer,
-        "const PLUGIN_UUID_STRUCT: optee_teec::raw::TEEC_UUID = optee_teec::raw::TEEC_UUID {{
-    timeLow: {:#x},
-    timeMid: {:#x},
-    timeHiAndVersion: {:#x},
-    clockSeqAndNode: {:#x?},
-}};",
-        time_low, time_mid, time_hi_and_version, clock_seq_and_node
-    )?;
+fn main() -> anyhow::Result<()> {
+    Config::new(Uuid::parse_str(proto::PLUGIN_UUID)?)
+        .with_name("syslog")
+        .build()?;
 
     Ok(())
 }

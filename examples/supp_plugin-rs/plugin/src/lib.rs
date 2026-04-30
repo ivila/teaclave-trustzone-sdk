@@ -15,24 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use optee_teec::{plugin_init, plugin_invoke, ErrorKind, PluginParameters};
+use optee_teec::{ErrorKind, Result};
+use optee_teec_macros::{derive_raw_plugin_init, derive_raw_plugin_invoke};
 use proto::PluginCommand;
 
-#[plugin_init]
-fn init() -> optee_teec::Result<()> {
+#[derive_raw_plugin_init]
+fn init() -> Result<()> {
     println!("*plugin*: init, version: {}", env!("CARGO_PKG_VERSION"));
     Ok(())
 }
 
-#[plugin_invoke]
-fn invoke(params: &mut PluginParameters) -> optee_teec::Result<()> {
+#[derive_raw_plugin_invoke]
+fn invoke(params: &mut optee_teec::PluginParameters) -> optee_teec::Result<()> {
     println!("*plugin*: invoke");
     match PluginCommand::from(params.cmd) {
         PluginCommand::Print => {
+            let input = params.get_buffer();
             println!(
                 "*plugin*: receive value: {:?} length {:?}",
-                params.inout,
-                params.inout.len()
+                input,
+                input.len()
             );
 
             let send_slice: [u8; 9] = [0x40; 9];

@@ -16,32 +16,16 @@
 # under the License.
 
 [package]
-name = "syslog_plugin"
-version = "0.4.0"
-authors = ["Teaclave Contributors <dev@teaclave.apache.org>"]
-license = "Apache-2.0"
-repository = "https://github.com/apache/teaclave-trustzone-sdk.git"
-description = "An example of Rust OP-TEE TrustZone SDK."
-edition = "2018"
+name = "optee-teec-plugin-bindgen"
+description = "generate binding for teec plugin"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
 
 [dependencies]
-libc = "0.2.48"
-proto = { path = "../proto" }
-optee-teec = { path = "../../../crates/optee-teec" }
-optee-teec-macros = { path = "../../../crates/optee-teec-macros" }
-
-[build-dependencies]
-optee-teec-plugin-bindgen = { path = "../../../crates/optee-teec-plugin-bindgen" }
-uuid = { version = "1.23" }
-proto = { path = "../proto" }
-anyhow = "1.0"
-
-[profile.release]
-lto = true
-
-[lib]
-crate-type = ["cdylib"]
-name = "syslog_plugin"
-
-[package.metadata.optee.plugin]
-uuid-path = "../plugin_uuid.txt"
+quote.workspace = true
+proc-macro2.workspace = true
+uuid.workspace = true
+syn.workspace = true
