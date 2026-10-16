@@ -1,296 +1,342 @@
 # AI Development Guide
 
-This guide defines repository-specific rules for AI coding agents working on Apache Teaclave TrustZone SDK.
+This document defines repository-specific instructions for AI coding agents working on Apache Teaclave TrustZone SDK. Follow it together with the root `AGENTS.md` and any instructions closer to the files being changed.
 
-Read this document before making code changes. For security reviews or security-sensitive changes, also read [`SECURITY.md`](../SECURITY.md) and [`docs/security-model.md`](security-model.md).
+Repository configuration, implementation, and CI workflows are authoritative when they differ from this guide. Use this guide for actionable workflows and engineering constraints; consult those sources when details change.
 
-## 1. Repository Facts
+## 1. Repository Layout and Toolchain
 
-### 1.1 Workspace layout
+### 1.1 Repository Structure
 
-The repository root is **not a Cargo workspace**. Do not run `cargo fmt --all`, `cargo test --workspace`, or similar workspace commands from the repository root.
+Identify the relevant package, target, and workflow before making changes.
 
-The repository contains independent Cargo workspaces:
+- `crates/`: Rust SDK crates.
+- `tools/`: development tools, including `cargo-optee`.
+- `examples/ca/`: Client Application examples.
+- `examples/ta/`: Trusted Application examples.
+- `projects/`: larger example projects, including `projects/web3/eth_wallet`.
+- `scripts/` and `ci/`: development and CI scripts.
+- Root-level `*-unknown-optee.json` files: target specifications for relevant builds.
+- `tests/`: QEMU and related integration-test scripts.
 
-| Directory | Purpose |
-| --- | --- |
-| `crates/` | Rust SDK crates, including `optee-utee` and `optee-teec` |
-| `tools/` | Rust development tools, including `cargo-optee` |
-| `examples/ca/` | Client Application examples |
-| `examples/ta/` | Trusted Application examples |
+Do not assume that every Rust directory belongs to the same Cargo workspace or follows the same build and test procedure. The `projects/web3/eth_wallet` project has a separate build step in the standard-library example CI path; it is not covered by `make std-examples` alone.
 
-Always run Cargo commands from the appropriate workspace directory. Check the relevant CI workflow before choosing a command or claiming CI-equivalent validation.
+### 1.2 Rust Toolchain
 
-### 1.2 Toolchain
+The repository's `rust-toolchain.toml` is the source of truth. It currently specifies:
 
-The repository pins its Rust toolchain in [`rust-toolchain.toml`](../rust-toolchain.toml). Use the pinned toolchain and its configured components rather than an arbitrary local stable or nightly version.
+- `channel = "nightly-2026-08-05"`
+- `profile = "minimal"`
+- Components: `rust-src`, `rustfmt`, `clippy`
+- Targets: `aarch64-unknown-linux-gnu`, `arm-unknown-linux-gnueabihf`
 
-When a toolchain-related failure occurs, inspect the pinned version, installed targets and components, and the exact CI environment before changing code or configuration.
+These values are a reference snapshot. Read the actual file before changing toolchain assumptions or diagnosing version-dependent behavior. Do not assume a globally installed toolchain matches CI.
 
-### 1.3 Source file license headers
+### 1.3 License Headers
 
-The CI license check uses `.licenserc.yaml`. Markdown files (`*.md`) are exempt, but newly added source and configuration files generally require the Apache license header.
+CI checks license headers using `apache/skywalking-eyes/header@v0.8.0`. The `.licenserc.yaml` file defines the corresponding configuration and exclusions.
 
-Before adding or modifying files such as `.rs`, `.sh`, and `.yml`, inspect neighboring files and follow the repository's license-header convention. Do not weaken the license check to make a change pass.
+When adding or moving files, inspect the actual configuration and CI workflow rather than duplicating exclusion rules here. Run the applicable license-header check when a change may affect its results.
 
-## 2. Understand Before Changing
+## 2. General Development Principles
 
-Before editing:
+- **Inspect before changing.** Read the relevant implementation, callers, tests, manifests, and CI configuration.
+- **Prefer the smallest complete change.** Avoid unrelated refactoring, dependencies, abstractions, and formatting changes.
+- **Preserve contracts.** Consider public API behavior, resource ownership, error semantics, feature boundaries, and compatibility.
+- **Verify the actual invariant.** Names, comments, and type shapes are not substitutes for checking API contracts and implementation.
+- **Keep verification claims precise.** Report only checks actually run and distinguish their results from unverified behavior.
 
-1. Identify the relevant crate, TA/CA component, build path, and public API.
-2. Read the implementation and its callers, related tests, feature declarations, and applicable CI workflow.
-3. Determine whether the code is built for `std`, `no_std`, host, ARM32, or AArch64.
-4. Check whether the behavior depends on OP-TEE, GlobalPlatform APIs, native libraries, generated code, build scripts, or proc macros.
-5. Identify the intended behavior and compatibility constraints.
+## 3. Dependencies, Features, and Build Configuration
 
-Prefer the smallest complete change that fixes the actual problem. Do not introduce abstractions, dependencies, synchronization, or public API changes without a concrete need.
+Before changing dependencies, Cargo features, lockfiles, or build configuration:
 
-## 3. Rust and Repository Conventions
+1. Identify the affected package and workspace.
+2. Inspect manifests, feature declarations, target-specific dependencies, lockfiles, and relevant CI commands.
+3. Check behavior with the intended features enabled and disabled, where applicable.
+4. Prefer existing repository patterns unless there is a concrete reason to introduce another mechanism.
+5. Verify the affected configuration with relevant builds or tests.
 
-- Follow the patterns already used in the relevant module and neighboring crates.
-- Preserve `std`/`no_std`, feature, and target boundaries.
-- Check `Cargo.toml`, feature definitions, and dependency relationships before adding or changing dependencies.
-- Do not assume host behavior proves behavior on a real TEE or target architecture.
-- Preserve public API and observable behavior unless a breaking change is explicitly intended.
-- Treat unknown enum values, error codes, FFI results, and unsupported configurations deliberately; do not silently discard information merely to simplify an implementation.
+Keep dependencies in the crate that owns their functionality. In particular, `*-sys` crates should remain mappings of the underlying OP-TEE C interfaces rather than becoming containers for unrelated high-level abstractions.
 
-## 4. Unsafe Rust, Auto Traits, and FFI
+Do not add dependencies merely to work around a compilation error without understanding its cause. Disabling a Cargo feature does not necessarily remove every associated dependency; inspect optional and target-specific dependency declarations.
 
-Unsafe code requires a concrete safety argument. Review the invariant, not just whether the code compiles.
+Update lockfiles only when required by the change or build process. Review the diff for unrelated package updates and explain significant dependency changes in the final report.
 
-### 4.1 Before adding or changing unsafe code
+## 4. Unsafe Rust, Concurrency, and Resource Management
 
-Establish:
+### 4.1 Unsafe Code
 
-1. Which operation is unsafe and why.
-2. Which invariants make the operation sound.
-3. Who establishes and maintains those invariants.
-4. Whether aliasing, lifetime, ownership, initialization, or pointer-validity requirements are satisfied.
-5. Whether concurrent access is possible and how it is synchronized.
-6. Whether cleanup and failure paths preserve the invariants.
-7. Which tests or other evidence validate the change.
+Before introducing or modifying `unsafe` code:
 
-Write a `SAFETY` comment that explains the relevant invariant and why it holds. A comment that merely restates the operation is insufficient.
+- Identify the invariant that makes the operation valid.
+- Check the relevant Rust and FFI contracts.
+- Verify pointer validity, alignment, initialization, aliasing, lifetimes, and thread-safety assumptions as applicable.
+- Keep the unsafe region as small as practical.
+- Add or update a `SAFETY` comment that explains why the specific operation is sound.
 
-### 4.2 `Send`, `Sync`, and synchronization
+A safety comment must state a verifiable invariant, not merely restate the operation or assert that it is safe. Check whether the invariant holds across all relevant call paths.
 
-- Prefer automatically derived `Send` and `Sync` implementations when they are sound.
-- Do not add `unsafe impl Send` or `unsafe impl Sync` merely to satisfy a compiler error.
-- Analyze `Send` and `Sync` separately. Being safe to move between threads does not imply being safe to share concurrently.
-- Keep any required unsafe implementation in the smallest private wrapper that can enforce its invariant.
-- Verify the native API's threading contract before claiming a handle or context is thread-safe.
+Do not introduce manual `Send` or `Sync` implementations merely to silence a compiler error. Establish why the type does not satisfy the trait bounds and whether the proposed design genuinely meets the safety requirements.
 
-A `Mutex` only synchronizes accesses that actually use the lock. `Mutex::get_mut(&mut self)` accesses the protected value through exclusive mutable access; it does not acquire the mutex or provide runtime mutual exclusion. Do not add redundant mutexes or poison handling without a demonstrated need. Conversely, do not remove synchronization without proving it is unnecessary.
+### 4.2 Concurrency and Synchronization
 
-### 4.3 FFI resources and lifetimes
+Choose synchronization based on actual access paths and required invariants.
 
-For resources such as TEEC contexts, sessions, operation handles, and native pointers, trace:
+- Identify shared state, its possible accessors, and operations that require mutual exclusion.
+- Determine whether ownership and existing type structure already provide the required guarantees.
+- Add locks, atomics, or other synchronization only when they address a demonstrated requirement.
+- Avoid redundant synchronization and unnecessary poison-handling logic.
+- Verify synchronization claims against the API contract and implementation.
 
-- Resource ownership and the lifetime of dependencies.
-- Initialization, partial failure, and cleanup behavior.
-- Whether native code retains pointers after a call returns.
-- Whether resources can be closed or dropped while still in use.
-- Whether multiple handles can access the same underlying native object concurrently.
-- Whether error codes and cleanup failures are handled consistently.
+For example, `Mutex::get_mut` does not acquire a runtime lock or provide runtime mutual exclusion. It accesses the protected value through an exclusive mutable reference.
 
-Use RAII or another explicit ownership strategy where appropriate. An abstraction is useful only if its implementation actually enforces the claimed invariant.
+Do not infer that a type is thread-safe merely because it is wrapped in `Arc`, or that an operation is synchronized merely because a mutex exists somewhere in the type. Trace where the lock is actually acquired and held.
 
-Do not infer the thread-safety contract of OP-TEE or a native API solely from Rust types. Confirm it from the relevant API contract and implementation.
+### 4.3 FFI Lifetimes and Resource Ownership
 
-## 5. Security Model and Security Reviews
+For every FFI handle or resource, establish:
 
-Read [`SECURITY.md`](../SECURITY.md) and [`security-model.md`](security-model.md) before security-sensitive work.
+- Which object owns it and releases it.
+- How long the underlying context and resource remain valid.
+- Which operations may run concurrently.
+- What happens if initialization, invocation, or cleanup fails.
+- Whether the handle can be used after close or destruction of its parent context.
 
-Apply the repository's TrustZone trust boundaries:
+Keep Rust ownership consistent with the underlying C API. Do not expose paths that allow a resource to outlive its owner or be used after close.
 
-- Treat the Normal World and its inputs as untrusted where the security model requires it.
-- Do not rely on Client Application validation as the security boundary for a Trusted Application.
-- Validate inputs at the boundary where the security invariant must be enforced.
-- Consider shared memory mutation and TOCTOU risks when data can change between validation and use.
-- Do not report the mere presence of `unsafe`, raw pointers, or FFI as a vulnerability without demonstrating a violated invariant or reachable security impact.
-- Consider relevant TA dependencies, build scripts, generated code, and cross-boundary data flows when defining review scope.
+If an API requires operations under a particular context or synchronization guard, enforce that requirement at the operation boundary rather than relying on callers to uphold an unenforced invariant.
 
-For each security finding, explain:
+### 4.4 Error Handling
 
-1. The affected component and trust boundary.
-2. The attacker capability and relevant input or call path.
-3. The violated invariant and realistic impact.
-4. Why existing checks or API contracts do not prevent the issue.
-5. A minimal remediation and a test that exercises the relevant behavior.
+Follow the affected API's error model and preserve meaningful error information.
 
-Clearly distinguish confirmed vulnerabilities from assumptions, hardening suggestions, and questions requiring further investigation. State unreviewed scope and environmental limitations. Follow the project's security-reporting policy.
+Do not suppress failures, convert them into success-shaped values, or add fallback behavior merely to make a test pass. Document and test necessary fallbacks. Avoid redundant error-handling layers, but do not discard errors callers need to determine whether an operation succeeded.
 
-## 6. Tests and Evidence
+## 5. Security-Sensitive Changes
 
-### 6.1 Test the claimed behavior
+Read `SECURITY.md` and [`docs/security-model.md`](security-model.md) when relevant to a security-sensitive change.
 
-Add or update tests for the behavior changed, including relevant failure paths, edge cases, and resource lifecycles.
+Treat changes involving unsafe code, FFI, cryptography, authentication, authorization, key handling, memory ownership, or cross-boundary data as security-sensitive.
 
-For FFI and resource-management changes, consider initialization failures, repeated operations, multiple resources, cleanup, and invalid inputs where applicable.
+For such changes:
 
-A test comment such as `Guarantee:` must describe only what the assertions actually prove. For example, a compile-time trait check does not prove runtime thread safety, and a host mock test does not prove the behavior of the native TEE implementation.
+1. Identify the security property that must be preserved.
+2. Trace relevant data flow, ownership, validation, and failure paths.
+3. Inspect callers and related implementations, not only the changed function.
+4. Consider invalid inputs, cleanup, concurrency, and configuration-dependent behavior.
+5. Add or update tests for security-relevant invariants where feasible.
 
-### 6.2 Report validation honestly
+Distinguish confirmed defects from hypotheses. Support findings with concrete code paths, violated invariants, or reproducible behavior. State important review limitations, such as configurations not exercised or build scripts and generated code not inspected.
 
-Separate checks into:
+## 6. Tests and Verification Evidence
 
-- **Passed**: executed successfully.
-- **Failed**: executed and failed, with the relevant error.
-- **Not run**: not executed.
-- **Blocked**: could not be executed because of a missing tool, environment, target, or external dependency.
+### 6.1 Status and Scope
 
-Do not claim that all cases, architectures, feature combinations, or security paths are covered unless the evidence supports that claim.
+Use these four statuses in reports:
 
-## 7. Formatting and Import Ordering
+- **Passed** — the command completed and the relevant check succeeded.
+- **Failed** — the command ran and the check failed.
+- **Not run** — the check was not attempted.
+- **Blocked** — a required check could not be completed because of an external prerequisite or environment limitation.
 
-Use the workspace-aware commands from the relevant workspace directory. The repository's CI runs formatting checks separately for `crates/` and `tools/`.
+Match evidence to the claim: a build is not runtime evidence, a host test does not establish TA runtime behavior, and one feature configuration does not establish correctness across all configurations. When blocked, state the missing prerequisite and what remains unverified.
 
-For the SDK crates:
+### 6.2 Unit Test Guarantee Comments
+
+**Every unit test must include a `Guarantee:` or `Guarantees:` comment** describing the behavior or invariant the test guarantees.
+
+Follow the existing convention in the affected crate and ensure the comment matches the assertions the test actually makes. Update it when changing the test's scope; do not claim behavior the test does not verify.
+
+## 7. Formatting and Linting
+
+Use the repository's configured toolchain and workspace-aware commands.
+
+### 7.1 Formatting
+
+For the crate workspace:
 
 ```bash
 cd crates
 cargo fmt --all --check
 ```
 
-For development tools:
+For the tools workspace:
 
 ```bash
 cd tools
 cargo fmt --all --check
 ```
 
-To apply formatting, run `cargo fmt --all` in the corresponding workspace, then inspect the diff.
+Do not substitute an independent `rustfmt --check` invocation for `cargo fmt --all --check`; workspace commands use the relevant Cargo configuration. If formatting fails, format with the workspace-aware command, inspect the diff, and rerun the check.
 
-Do not use standalone `rustfmt --check` as a substitute for the repository's Cargo formatting check. Do not guess import ordering or manually edit formatting diffs without rerunning the appropriate formatter.
+### 7.2 Clippy
 
-If local formatting differs from CI, compare the exact command, the pinned Rust toolchain, the workspace being checked, and the relevant configuration. Do not assume a `rustfmt.toml` or `style_edition` configuration exists; first verify that the repository or invocation actually defines one.
-
-## 8. Repository Validation Commands
-
-Choose checks based on the changed component. Do not run every command blindly, and do not describe a partial check as equivalent to the full CI pipeline.
-
-### 8.1 SDK crates
-
-The following commands are based on `.github/workflows/reuse_test.yml`:
+For the crate workspace:
 
 ```bash
 cd crates
+cargo clippy \
+  --workspace \
+  --exclude secure_db \
+  --exclude rustls_provider \
+  --target aarch64-unknown-linux-gnu \
+  -- -D warnings
+```
 
+For `cargo-optee`:
+
+```bash
+cd tools
+cargo clippy -p cargo-optee -- -D warnings
+```
+
+Preserve the CI target and exclusions unless the task requires a different configuration. Report alternative checks separately rather than implying they are identical to CI.
+
+## 8. Build and Test Workflows
+
+### 8.1 SDK Crate Tests and Cross-Compilation
+
+The standard setup path, run from the repository root, is:
+
+```bash
+./setup.sh
+source "$HOME/.cargo/env"
+./build_optee_libraries.sh "$HOME"
+export OPTEE_DIR="$HOME"
+source environment
+```
+
+Before running builds or tests, inspect the actual shell environment and required paths, particularly `TA_DEV_KIT_DIR`, `OPTEE_CLIENT_EXPORT`, and `OPTEE_DIR`. This setup sequence is a standard path, not the only valid shell configuration. The `environment` script supports explicit `TARGET_TA`, `TARGET_HOST`, and `OPTEE_DIR` inputs; respect custom configurations and verify that they target the intended build.
+
+Run the package tests from `crates/`:
+
+```bash
 cargo test -p optee-utee --features no_panic_handler
 cargo test -p optee-teec
 cargo test -p optee-utee-build
 cargo test -p optee-utee --features std
-
-cargo build -p optee-utee --target aarch64-unknown-linux-gnu
-cargo build -p optee-teec --target aarch64-unknown-linux-gnu
-
-cargo clippy --workspace \
-  --exclude secure_db \
-  --exclude rustls_provider \
-  --target aarch64-unknown-linux-gnu -- -D warnings
-
-cargo fmt --all --check
 ```
 
-These commands may require the repository's configured environment, native dependencies, or installed target toolchains. Check the workflow and setup instructions before running them.
+These commands exercise distinct packages or feature configurations. A pass in one does not establish that the others passed.
 
-### 8.2 Development tools
+The CI cross-compilation checks include:
 
-The CI checks under `tools/` include:
+```bash
+cargo build -p optee-utee --target aarch64-unknown-linux-gnu
+cargo build -p optee-teec --target aarch64-unknown-linux-gnu
+```
+
+Run these from `crates/` in an environment with the required target and OP-TEE dependencies configured.
+
+### 8.2 OP-TEE Client System Test
+
+The `optee-teec-systest` job uses an ARM64 host environment. It is not a generic host-independent test command.
+
+Configure the client library path as required by that environment:
+
+```bash
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$OPTEE_DIR/optee_client/export_arm64/usr/lib"
+cd crates
+cargo run -p optee-teec-systest
+```
+
+The Trusted Application system-test package also has a build check:
+
+```bash
+cd crates
+cargo build -p optee-utee-systest
+```
+
+A successful build is not evidence that a system test ran successfully. If running outside the intended ARM64 environment, report the limitation rather than treating an incompatible environment as a source-code failure.
+
+### 8.3 Examples and QEMU
+
+Run example targets from the repository root.
+
+For no-std examples:
+
+```bash
+make no-std-examples -j2
+```
+
+For std examples, prepare the std dependencies and configure the environment **before sourcing `environment`**:
+
+```bash
+./setup_std_dependencies.sh
+export STD=y
+source environment
+make std-examples -j2
+```
+
+`STD=y` affects how `environment` derives `TARGET_TA`. If `environment` was already sourced with the no-std configuration, source it again after setting `STD=y` so the target configuration is recalculated. Do not assume setting `STD=y` immediately before `make` retroactively changes variables already derived by the earlier `source`.
+
+The `projects/web3/eth_wallet` project has a separate build step and is not included in `make std-examples` alone:
+
+```bash
+cd projects/web3/eth_wallet
+make
+```
+
+#### QEMU runtime tests
+
+A successful example build does not establish QEMU runtime success. The repository's runtime-test path uses scripts under `tests/`, including `tests/setup.sh`, `tests/optee-qemuv8.sh`, and applicable `tests/test_*.sh` scripts. The reusable workflow invokes the QEMU-based test scripts through `ci/ci.sh`.
+
+Start by inspecting the scripts and their usage from the repository root:
+
+```bash
+sed -n '1,220p' ci/ci.sh
+sed -n '1,220p' tests/setup.sh
+sed -n '1,260p' tests/optee-qemuv8.sh
+```
+
+Then run the setup, QEMU launcher, and applicable test scripts using the invocation and prerequisites defined by those scripts. Do not guess environment-variable names or assume every `test_*.sh` script can run independently. If QEMU or another prerequisite is unavailable, report the runtime test as blocked rather than treating a successful build as a substitute.
+
+The repository also has a `test-build-on-dev-docker` CI job. When reproducing that job, inspect its current steps in `ci.yml`, including configuration switching and the `$RUST_STD_DIR` setup. Do not assume that the reusable example workflow covers this separate environment.
+
+### 8.4 Tools Tests
+
+Run `cargo-optee` tests from `tools/`:
 
 ```bash
 cd tools
-
 cargo test -p cargo-optee
-cargo clippy -p cargo-optee -- -D warnings
-cargo fmt --all --check
 ```
 
-### 8.3 TA/CA examples and OP-TEE integration
+Use the appropriate workspace for tool-specific formatting, linting, and testing. Check package manifests and CI configuration when additional system dependencies or test prerequisites may be required.
 
-Example builds and runtime tests depend on the configured OP-TEE environment and target architecture.
+## 9. Code Review and Collaboration
 
-- Inspect `.github/workflows/ci.yml` and the relevant reusable workflow.
-- The CI example matrix covers ARM32 and AArch64, with both `std` and `no_std` TA configurations.
-- The workflow uses `make` for `no_std` examples and `make std-examples` for `std` examples in its configured emulator environment.
-- `cargo optee` is part of the repository's development workflow; inspect the tool documentation and environment setup before choosing its arguments.
-- `ci/ci.sh` runs integration tests under `tests/`. It uses paths relative to the `ci/` directory, so invoke it from that directory after setting up the required environment.
+Before finalizing a change, review the complete diff, including untracked files. Confirm that:
 
-Do not claim QEMU, emulator, native OP-TEE, ARM32, or AArch64 validation unless the corresponding check was actually performed.
+- The implementation solves the requested problem without unrelated changes.
+- Public interfaces, feature behavior, error semantics, and resource ownership remain coherent.
+- Tests and their `Guarantee:` or `Guarantees:` comments match the intended behavior.
+- Documentation, manifests, lockfiles, generated files, and configuration remain consistent.
+- Related callers, implementations, tests, and files have not been missed.
 
-### 8.4 General diff checks
+For parallel work, establish file ownership and inspect the worktree before editing, overwriting, or reverting files. After integrating contributions, review the combined diff, resolve incompatible assumptions, and verify the integrated result. Do not discard another contributor's changes merely because they differ from an earlier plan.
 
-From the repository root, inspect the complete change:
+## 10. Git and Delivery
 
-```bash
-git diff --check
-git status --short
-git diff
-```
+Before declaring a change complete:
 
-For new, untracked files, explicitly inspect their contents as well; `git diff` alone does not show them.
+1. Inspect `git status` and the full diff.
+2. Confirm that only intended files changed.
+3. Check for accidental generated files, temporary artifacts, unrelated formatting, and unintended lockfile updates.
+4. Run relevant checks against the final worktree state.
+5. Report results and remaining limitations.
 
-## 9. CI and Failure Diagnosis
+Do not use destructive Git commands or overwrite existing work without understanding their impact. During rebases and conflict resolution, inspect both sides and preserve the intended behavior.
 
-When a check fails:
+Commit messages should describe the final change and follow repository conventions. Do not claim to have committed, pushed, or changed repository history unless that action was actually performed.
 
-1. Capture the exact command and the first relevant error.
-2. Reproduce the failure in the same workspace and, where practical, with the pinned toolchain.
-3. Determine whether the cause is code, configuration, environment, toolchain, or test assumptions.
-4. Make the smallest change that addresses the demonstrated cause.
-5. Rerun the failed check and the relevant regression tests.
+## 11. Final Report
 
-Do not disable lint rules, weaken assertions, remove test coverage, or change CI configuration merely to make a failure disappear. Change those constraints only when there is a justified, explicit reason.
+Keep the final report concise. Include:
 
-Do not attribute a CI failure to a toolchain or environment mismatch without evidence.
+- **Changes:** what changed and why.
+- **Verification:** commands actually run and their statuses.
+- **Limitations:** checks not run or blocked.
+- **Security scope:** important areas reviewed or left unverified for security-sensitive changes.
 
-## 10. Refactoring and Compatibility
-
-Before refactoring, identify the public and internal contracts that must remain true.
-
-Review changes to:
-
-- Public types, enum variants, method signatures, and error behavior.
-- `Send`/`Sync` behavior and resource lifetimes.
-- Feature flags, dependency selection, and target support.
-- FFI calls, initialization, and cleanup ordering.
-- Generated code, build scripts, and examples that consume the API.
-
-Keep unrelated cleanup separate from correctness fixes when practical. Do not introduce a new abstraction solely to make a diff look more uniform.
-
-## 11. Parallel Work and Shared Changes
-
-When using multiple agents or concurrent work:
-
-- Give each agent a clear scope and expected output.
-- Inspect repository status before editing.
-- Do not overwrite another agent's changes or assume the worktree is isolated.
-- Review the integrated diff for conflicting assumptions, duplicated logic, and missing tests.
-- Run the relevant checks after integration.
-
-Treat agent-generated findings and patches as hypotheses to verify, not as proof of correctness.
-
-## 12. Git and Completion Report
-
-Before finishing:
-
-1. Inspect the complete diff, including untracked files.
-2. Check for accidental changes, unrelated files, debug output, and generated artifacts.
-3. Confirm relevant tests and checks have been run, or clearly state why they were not.
-4. Summarize the behavior changed, the reasoning behind it, and any remaining risks.
-5. Report commands and results accurately.
-
-Do not stage, commit, rewrite history, or discard existing user changes unless explicitly requested.
-
-Apache project contributions do not require a `Signed-off-by` trailer. Such trailers are optional and do not replace any applicable Apache Contributor License Agreement requirements.
-
-## 13. Completion Criteria
-
-A change is ready to report as complete when:
-
-- The implementation addresses the demonstrated problem.
-- Relevant invariants, API behavior, and security boundaries have been reviewed.
-- Tests cover the changed behavior and important failure paths.
-- Formatting and applicable lint checks pass, or limitations are stated.
-- The final diff contains no unexplained or unrelated changes.
-- The completion report distinguishes verified results from assumptions and unexecuted checks.
+Distinguish build, unit-test, cross-compilation, system-test, and QEMU runtime results. Do not imply broader coverage than the evidence supports.
