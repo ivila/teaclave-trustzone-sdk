@@ -21,6 +21,20 @@ set -xe
 
 pushd ../tests
 
+# The test harness selects the QEMU guest and image from TARGET_HOST.
+case "${TARGET_HOST:-}" in
+    arm-unknown-*)
+        echo "Running tests in the AArch32 QEMU guest"
+        ;;
+    aarch64-unknown-*|"")
+        echo "Running tests in the AArch64 QEMU guest"
+        ;;
+    *)
+        echo "Unsupported TARGET_HOST: $TARGET_HOST" >&2
+        exit 1
+        ;;
+esac
+
 # Prioritize running specialized test suites first, as they have a higher
 # probability of detecting failures early in the pipeline.
 # Run std only tests
