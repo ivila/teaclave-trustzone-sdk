@@ -32,6 +32,11 @@ on:
       ta_arch:
         required: true
         type: string
+      guest_arch:
+        description: 'QEMU guest architecture: aarch64 or arm32'
+        required: false
+        type: string
+        default: aarch64
 
 defaults:
   run:
@@ -41,9 +46,9 @@ jobs:
   # compile on host and run tests in QEMU
   build-and-test-examples:
     env:
-      # Setup the env for the build, currently our QEMU image only support
-      # aarch64 CA
-      ARCH_HOST: aarch64
+      # A 32-bit guest needs a 32-bit client and 32-bit TAs. The QEMUv8 guest
+      # always uses an AArch64 client.
+      ARCH_HOST: ${{ inputs.guest_arch == 'arm32' && 'arm' || 'aarch64' }}
       ARCH_TA: ${{ inputs.ta_arch }}
       OPTEE_DIR: /tmp/optee
     runs-on: ${{ inputs.runs-on }}

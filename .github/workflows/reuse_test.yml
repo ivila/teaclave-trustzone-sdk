@@ -118,6 +118,24 @@ jobs:
       std: true
       ta_arch: arm
 
+  build-and-test-examples-for-32bit-aarch32-no-std-TAs:
+    uses: ./.github/workflows/reuse_host_build_and_qemu_run.yml
+    with:
+      runs-on: ${{ inputs.runs-on }}
+      container: ${{ inputs.container }}
+      std: false
+      ta_arch: arm
+      guest_arch: arm32
+
+  build-and-test-examples-for-32bit-aarch32-std-TAs:
+    uses: ./.github/workflows/reuse_host_build_and_qemu_run.yml
+    with:
+      runs-on: ${{ inputs.runs-on }}
+      container: ${{ inputs.container }}
+      std: true
+      ta_arch: arm
+      guest_arch: arm32
+
   build-and-test-examples-for-64bit-std-TAs:
     uses: ./.github/workflows/reuse_host_build_and_qemu_run.yml
     with:

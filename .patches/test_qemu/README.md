@@ -16,7 +16,8 @@ Relevant Patch File:
 ## Patches for Expand Memory
 
 Some of our tests require more Trusted Application (TA) memory than the default
-OP-TEE configuration provides.
+OP-TEE configuration provides. Both the QEMUv8 and AArch32 images use these
+patches together with the expanded TZDRAM make arguments.
 
 Relevant Patch File:
 
