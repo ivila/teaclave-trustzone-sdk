@@ -39,7 +39,8 @@ them to the nightlies repository.
 For each OP-TEE release, we maintain a comprehensive set of images across both
 host architectures (x86_64, aarch64) and both guest platforms (QEMUv8,
 AArch32). These images serve dual purposes:
-1. **CI Infrastructure:** Enable automated testing of TAs on QEMUv8 platforms
+1. **CI Infrastructure:** Enable automated testing of TAs on the QEMUv8 and
+   AArch32 platforms
 2. **Developer Environment:** Provide ready-to-use emulation environments for quick 
    TA development and testing
 
@@ -82,6 +83,9 @@ the guest.
         -T ./aarch64-optee-4.8.0-qemuv8-ubuntu-24.04-expand-ta-memory.tar.gz \
         "https://nightlies.apache.org/teaclave/teaclave-trustzone-sdk/"
    ```
+
+   CI downloads these images from nightlies, so publish them before expecting
+   the QEMU test jobs to pass.
 
 ### 3. PR to Bump optee-version.txt
 
